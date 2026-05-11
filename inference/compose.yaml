@@ -1,7 +1,6 @@
 networks:
-  inference_network:
+  llm_net:
     driver: bridge
-
 
 services:
   vllm:
@@ -11,7 +10,7 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - inference_network
+      - llm_net
     cap_add:
       - SYS_PTRACE
     group_add:
@@ -25,8 +24,8 @@ services:
       - "HF_TOKEN=${HF_TOKEN}"
     volumes:
       - /scratch/hf-cache:/root/.cache/huggingface
-    command: --model Qwen/Qwen3-0.6B
-    
+      - ./llvm-config.yaml:/config/llvm-config.yaml
+    command: --config /config/llvm-config.yaml
     healthcheck:
       test: ["CMD-SHELL",
              "curl -f --connect-timeout 4 --max-time 9 http://127.0.0.1:8000/health || exit 1"
@@ -36,3 +35,17 @@ services:
       retries: 5
       start_period: 1200s
 
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    volumes:
+      - open-webui_data:/app/backend/data
+    environment:
+      - "OPENAI_API_BASE_URL=http://llvm:8000/v1"
+    ports:
+      - "3000:8080"
+    networks:
+      - llm_net
+    restart: always
+
+volumes:
+  open-webui_data: # default settings

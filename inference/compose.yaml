@@ -1,0 +1,41 @@
+networks:
+  inference_network:
+    driver: bridge
+
+
+services:
+  vllm:
+    env_file:
+      - path: ../override.env
+        required: false
+    image: vllm/vllm-openai-rocm:latest
+    container_name: vllm
+    ipc: host
+    ports:
+      - "8000:8000"
+    networks:
+      - inference_network
+    cap_add:
+      - SYS_PTRACE
+    group_add:
+      - video
+    security_opt:
+      - seccomp=unconfined
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    environment:
+      - "HF_TOKEN=${HF_TOKEN}"
+    volumes:
+      - /scratch/hf-cache:/root/.cache/huggingface
+    command: --model Qwen/Qwen3-0.6B
+    
+    healthcheck:
+      test: ["CMD-SHELL",
+             "curl -f --connect-timeout 4 --max-time 9 http://127.0.0.1:8000/health || exit 1"
+	    ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+

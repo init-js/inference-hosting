@@ -1,0 +1,25 @@
+models:
+  "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic":
+    host: host.docker.internal
+    port: 8001
+    wake:  /config/scripts/swap.sh wake  8001
+    sleep: /config/scripts/swap.sh sleep 8001
+    alive: curl -svf http://host.docker.internal:8001/health
+
+  "Qwen/Qwen3.6-35B-A3B":
+    host: host.docker.internal
+    port: 8002
+    wake:  /config/scripts/swap.sh wake  8002 
+    sleep: /config/scripts/swap.sh sleep 8002
+    alive: curl -svf http://host.docker.internal:8002/health
+
+policy:
+  # Max time a request waits for a switch. Omit for unlimited.
+  # request_timeout_secs: 300
+
+  # Wait for in-flight requests to finish before switching. Default: true.
+  drain_before_switch: true
+
+  # Minimum seconds a model stays active before it can be switched out.
+  # Prevents rapid thrashing. Default: 0.
+  min_active_secs: 5

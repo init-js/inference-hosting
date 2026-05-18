@@ -1,0 +1,59 @@
+#
+# This compose file is reused multiple times for different models,
+# different memory settings, and different network ports.
+#
+# To use it effectively, define the following environment variables
+#     VLLM_PORT=nnnnn   The port number to listen to, on the host (not inside the guest).
+#     VLLM_MODEL=xxx    The fully qualified hugging face model name.
+#                       The model will be downloaded the first time it's used.
+#
+#     VLLM_MODEL_CONFIG=FIL  The yaml file to use when serving the model in vllm, relative
+#                            to the model-config/ subdirectory.
+#
+# Also set a unique project name when calling compose, so that docker-compose doesn't get
+# confused as to which container to bring up or down.
+#
+
+networks:
+  llm-net:
+    external: true
+
+services:
+  vllm:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: "vllm-${VLLM_PORT:?define VLLM_PORT to the bind port}"
+    ipc: host
+    ports:
+      - "${VLLM_PORT}:8000"
+    networks:
+      - llm-net
+    cap_add:
+      - SYS_PTRACE
+    group_add:
+      - video
+    security_opt:
+      - seccomp=unconfined
+    devices:
+      - "/dev/kfd:/dev/kfd"
+      - "/dev/dri:/dev/dri"
+    environment:
+      - "HF_TOKEN=${HF_TOKEN}"
+      # this key is used by the llmux-docker switching script to inspect which model
+      # is loaded on the network port.
+      - "LLMUX_MODEL=${VLLM_MODEL}"
+    volumes:
+      - /models/hf-cache:/root/.cache/huggingface
+      - ./model-config:/config/:ro
+    # https://docs.vllm.ai/en/latest/cli/#serve
+    command: [
+      "${VLLM_MODEL:?specify VLLM_MODEL}",
+      "--config", "/config/${VLLM_MODEL_CONFIG:?specify a model config basename}",
+      "--host", "0.0.0.0",
+      "--port", "8000"
+    ]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f --connect-timeout 4 --max-time 9 http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s

@@ -1,0 +1,39 @@
+
+#
+# BEFORE YOU CAN BRING UP THIS SERVICE, YOU NEED TO INSTALL THE LISTENER SCRIPTS ON
+# THE HOST. RUN listender/install.sh.
+#
+# Runs a static llmux binary inside a docker container. llmux is a proxy webserver that
+# pages models in and out of the GPU VRAM. We've configured it to issue wake and sleep
+# commands on a unix pipe. On the host there is a daemon that picks up the commands and
+# starts/stops docker containers. This is safer than giving root access to the dockerd
+# unix socket.
+
+
+networks:
+  llm-net:
+    external: true
+
+services:
+  llmux:
+    container_name: llmux
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    image: llmux-static
+    command: ["--config", "/config/llmux.yaml", "-v"]
+    volumes:
+      # Allows the container to issue docker commands
+      - /run/llmux-fifo/llmux.fifo:/run/llmux-fifo/llmux.fifo
+      - ./config/:/config/:ro
+    ports:
+      - "3333:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - llm-net
+    restart: always
+    # getent group llmux | cut -d: -f3
+    # this is the groupid that owns the llmux.fifo
+    user: 1000:${LLMUX_GROUP_ID:-980}
+

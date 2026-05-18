@@ -1,0 +1,11 @@
+ # Qwen/Qwen3.6-35B-A3B 
+
+max-model-len: 'auto' # 262144
+reasoning-parser: qwen3
+ # it supports images too -- but disable.
+language-model-only: true
+enable-auto-tool-choice: true
+tool-call-parser: hermes
+
+# don't complain if we use the model author's weights
+generation-config: auto

@@ -1,0 +1,6 @@
+# default config
+# https://docs.vllm.ai/en/latest/configuration/serve_args/
+#
+config-format: auto
+max-model-len: auto
+language-model-only: true

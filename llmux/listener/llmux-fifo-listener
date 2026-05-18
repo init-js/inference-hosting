@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Simple systemd-friendly FIFO listener.
+# Listens on a FIFO for lines containing 1-liner commands:
+#
+# # start serving MODEL on port PORT
+# "start PORT MODEL"
+#
+# # stop serving whatever is running on port PORT (MODEL is provided for informational purposes)
+# "stop PORT MODEL"
+#
+# Environment variables:
+#  FIFO_PATH  - path to the FIFO (default: /run/llmux_cmds.fifo)
+#  LOG_TAG    - tag used with logger (default: llmux-fifo-listener)
+
+FIFO_PATH="${FIFO_PATH:?missing FIFO_PATH}"
+LOG_TAG="${LOG_TAG:-llmux-fifo}"
+
+# this command is executed with sudo -- assumes sudoers already modified
+LAUNCH_BIN=/usr/local/sbin/llmux-docker
+COMPOSE_DIR=${COMPOSE_DIR:?missing COMPOSE_DIR environment variable}
+
+# Create FIFO if doesn't exist
+if [ ! -p "$FIFO_PATH" ]; then
+  rm -f "$FIFO_PATH" || true
+  mkfifo "$FIFO_PATH"
+  chmod 660 "$FIFO_PATH"
+fi
+
+cleanup() {
+  logger -t "$LOG_TAG" "Stopping FIFO listener (status=$status)"
+}
+trap 'status=$?; cleanup; exit $status' EXIT
+
+logger -t "$LOG_TAG" "Starting FIFO listener (fifo=$FIFO_PATH)"
+
+while true; do
+
+  if ! read -r cmd port model < "$FIFO_PATH"; then
+    # just tavoid busy looping if the fifo disappears
+    sleep 0.25
+    continue
+  fi
+
+  logger -t "$LOG_TAG" "received cmd=${cmd:-} port=${port:-} model=${model:-}"
+
+  if [[ -z "$port" ]]; then
+    echo "missing port in command" >&2
+    continue
+  fi
+  
+  if [[ -z "$model" ]]; then
+    echo "missing model in command" >&2
+    continue
+  fi
+
+  case "$cmd" in
+    start|stop)
+      res=0
+      # this is a blocking call, so anyone trying to send us a command on
+      # the fifo while we get stuck here will also block.
+      sudo $LAUNCH_BIN -C "$COMPOSE_DIR" "$cmd" "$port" "$model" || res=$?
+      echo "$LAUNCH_BIN exited with code $?" >&2
+      ;;
+    *)
+      logger -t "$LOG_TAG" "Unknown command: $cmd" ;;
+  esac
+done

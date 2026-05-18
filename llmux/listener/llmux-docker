@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# /usr/local/sbin/llmux-docker-start
+set -euo pipefail
+
+usage () {
+  echo "Usage $(basename "$0") [-C CONFIGDIR] CMD PORT MODEL
+
+     -C DIR  the absolute path to the directory containing docker compose files
+
+     CMD     'start'  to start the corresponding model container
+             'stop' to stop the corresponding model container 
+     PORT    The port on which the model is served
+     MODEL   The full name of the model to be served.
+             e.g. Qwen/Qwen3.6-35B-A3B
+"
+}
+
+# echoes the container id occupying tcp port $1
+#
+# Searches this output:
+#   e79ff449d882 vllm-8002 0.0.0.0:8002->8000/tcp, [::]:8002->8000/tcp
+#   79b569618383 llmux 0.0.0.0:3000->3000/tcp, [::]:3000->3000/tcp
+cid_for_port () {
+  local port="${1:? missing port}"
+  while read cid name rest; do
+      # better way to do this?
+      if echo "$rest" | grep -q "${port}->"; then
+        echo "container $cid named $name is on port $port" >&2
+        echo "$cid"
+        return 0
+      fi
+  # list active docker containers
+  done < <(docker ps --format "{{.ID}} {{.Names}} {{.Ports}}" | { grep vllm- || :; })
+  echo "no container using port $port" >&2
+  echo ""
+  return 0
+}
+
+# prints the name of the model running on the given container id "$1"
+# this is extracted from the container's environment by looking for a specific env var.
+model_of_container () {
+  local cid="${1:?missing container id}"
+  local model
+  model=$(docker inspect "$cid" --format "{{json .Config.Env}}" | jq -r '.[]' | grep "^LLMUX_MODEL=" || :)
+  echo "${model#*=}"
+}
+
+evict_by_port () {
+  local port="${1:? missing port}"
+  (
+    cd "$COMPOSE_DIR"
+    set -x
+    VLLM_MODEL=dummy \
+    VLLM_MODEL_CONFIG=dummy \
+    VLLM_PORT="$PORT" \
+    docker compose -p "p$PORT" -f "docker-compose.yaml" down
+  )
+}
+
+start_vllm () {
+  local port="${1:?missing port}"
+  local model="${2:?missing model}"
+  
+  # convert Qwen/MyModel3.5 -> qwen/MyModel3.5
+  local cand
+  local modelfile=default.yaml
+  while read cand; do
+    if [[ "${cand,,}" == "${model,,}".yaml ]]; then
+      modelfile=$cand
+      break
+    fi
+  done < <(cd "$COMPOSE_DIR/model-config" && 
+           find . -name '*.yaml' -type f -printf '%P\n')
+
+  echo "using vllm model configuration $modelfile" >&2
+  (
+    cd "$COMPOSE_DIR"
+    set -x
+    VLLM_MODEL="$model" \
+    VLLM_MODEL_CONFIG="$modelfile" \
+    VLLM_PORT="$port" \
+    `: we use the -p project argument to reuse compose file` \
+    docker compose -p "p$port" -f "docker-compose.yaml" up -d 
+  )
+}
+
+
+POS_ARGS=( -- )
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -C)
+      shift
+      COMPOSE_DIR="${1:?missing value for compose directory}"
+      ;;
+    -*)
+      echo "unrecognized flag: $1" >&2
+      exit 1
+      ;;
+    *)
+      POS_ARGS+=( "$1" )
+      ;;
+  esac
+  shift
+done
+
+COMPOSE_DIR=${COMPOSE_DIR:?missing compose directory or -C command line param}
+
+# CMD PORT MODEL
+if [[ ${#POS_ARGS[@]} -lt 4 ]]; then
+  usage >&2
+  exit 1
+fi
+
+CMD="${POS_ARGS[1]}"
+PORT="${POS_ARGS[2]}"
+MODEL="${POS_ARGS[3]}"
+
+case "$CMD" in
+  start)
+    # free the port
+    cid=$(cid_for_port "$PORT")
+    if [[ -n "$cid" ]]; then
+      cur_model=$(model_of_container "$cid")
+      if [[ "$cur_model" != "$MODEL" ]]; then
+        echo "evicting model '$cur_model' from $PORT. installing '$MODEL'." >&2
+        evict_by_port "$PORT"
+      else
+        echo "model $MODEL already running on port $PORT." >&2
+      fi
+    fi
+    start_vllm "$PORT" "$MODEL"
+    ;;
+  stop)
+    evict_by_port "$PORT"
+    ;;
+  *)
+    echo "unrecognized command: $CMD" >&2
+    exit 1
+    ;;
+esac

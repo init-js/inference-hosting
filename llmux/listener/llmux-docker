@@ -53,7 +53,7 @@ evict_by_port () {
     VLLM_MODEL=dummy \
     VLLM_MODEL_CONFIG=dummy \
     VLLM_PORT="$PORT" \
-    docker compose -p "p$PORT" -f "docker-compose.yaml" down
+    docker compose -p "p$PORT" -f "compose.yaml" down
   )
 }
 
@@ -80,7 +80,7 @@ start_vllm () {
     VLLM_MODEL_CONFIG="$modelfile" \
     VLLM_PORT="$port" \
     `: we use the -p project argument to reuse compose file` \
-    docker compose -p "p$port" -f "docker-compose.yaml" up -d 
+    docker compose -p "p$port" -f "compose.yaml" up -d 
   )
 }
 

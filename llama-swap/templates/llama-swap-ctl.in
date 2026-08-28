@@ -1,0 +1,242 @@
+#!/bin/bash
+set -euo pipefail
+
+COMPOSE_DIR="/opt/llama"
+COMPOSE_FILE="@@COMPOSE_FILE@@"
+COMPOSE_DIR="$(dirname "$COMPOSE_FILE")"
+MODELS_INI="@@MODELS_INI@@"
+
+build_model_args() {
+    local ini="$1"
+    local model="$2"
+
+    local section=""
+    local found=0
+    local line key val
+
+    declare -A global=()
+    declare -A localopt=()
+    declare -a global_order=()
+    declare -a local_order=()
+
+    trim() {
+        local s="$1"
+        s="${s#"${s%%[![:space:]]*}"}"
+        s="${s%"${s##*[![:space:]]}"}"
+        printf '%s' "$s"
+    }
+
+    is_truthy() {
+        case "${1,,}" in
+            1|true|yes|on) return 0 ;;
+            *)             return 1 ;;
+        esac
+    }
+
+    is_falsey() {
+        case "${1,,}" in
+            0|false|no|off) return 0 ;;
+            *)              return 1 ;;
+        esac
+    }
+
+    is_flag() {
+        case "$1" in
+            jinja|cache-prompt) return 0 ;;
+            *)                  return 1 ;;
+        esac
+    }
+
+    emit() {
+        local key="$1"
+        local val="$2"
+
+        # Preset/router-only things we do not pass to a
+        # single-model llama-server.
+        case "$key" in
+            version|load-on-startup|default-model|stop-timeout)
+                return 0
+                ;;
+        jinja|cache-prompt)
+            if is_truthy "$val"; then
+                printf '%s\0' "--$key"
+            elif ! is_falsey "$val"; then
+                printf 'Invalid boolean for %s: %s\n' "$key" "$val" >&2
+                return 2
+            fi
+            return 0
+            ;;
+
+        warmup)
+            if is_truthy "$val"; then
+                printf '%s\0' '--warmup'
+            elif is_falsey "$val"; then
+                printf '%s\0' '--no-warmup'
+            else
+                printf 'Invalid boolean for %s: %s\n' "$key" "$val" >&2
+                return 2
+            fi
+            return 0
+            ;;
+        esac
+
+        # Everything else takes a value.
+        printf '%s\0%s\0' "--$key" "$val"
+    }
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Remove comments beginning with # or ;.
+        line="${line%%#*}"
+        line="${line%%;*}"
+        line="$(trim "$line")"
+
+        [[ -z "$line" ]] && continue
+
+        # Section header.
+        if [[ "$line" == \[*\] ]]; then
+            section="${line:1:${#line}-2}"
+            section="$(trim "$section")"
+
+            if [[ "$section" == "$model" ]]; then
+                found=1
+            fi
+
+            continue
+        fi
+
+        # Ignore lines without '='.
+        [[ "$line" != *=* ]] && continue
+
+        key="${line%%=*}"
+        val="${line#*=}"
+
+        key="$(trim "$key")"
+        val="$(trim "$val")"
+
+        # Ignore file-level keys such as:
+        #
+        # version = 1
+        [[ -z "$section" ]] && continue
+
+        if [[ "$section" == "*" ]]; then
+            if [[ ! -v 'global[$key]' ]]; then
+                global_order+=("$key")
+            fi
+            global["$key"]="$val"
+
+        elif [[ "$section" == "$model" ]]; then
+            if [[ ! -v 'localopt[$key]' ]]; then
+                local_order+=("$key")
+            fi
+            localopt["$key"]="$val"
+        fi
+
+    done < "$ini"
+
+    if (( ! found )); then
+        printf 'Unknown model preset: %s\n' "$model" >&2
+        return 2
+    fi
+
+    # Globals first, except where overridden locally.
+    for key in "${global_order[@]}"; do
+        if [[ ! -v 'localopt[$key]' ]]; then
+            emit "$key" "${global[$key]}" || return
+        fi
+    done
+
+    # Then model-specific options.
+    for key in "${local_order[@]}"; do
+        emit "$key" "${localopt[$key]}" || return
+    done
+}
+
+ACTION="${1:-}"
+MODEL="${2:-}"
+PORT="${3:-}"
+
+# Safe identifier
+if [[ ! "$MODEL" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+    echo "Invalid model name: $MODEL" >&2
+    exit 2
+fi
+
+# Must exist as a section in models.ini
+if ! grep -Fxq "[$MODEL]" "$MODELS_INI"; then
+    echo "Unknown model: $MODEL" >&2
+    exit 2
+fi
+
+CONTAINER="llama-${PORT}-${MODEL}"
+
+case "$ACTION" in
+    start)
+        if [[ ! "$PORT" =~ ^[0-9]+$ ]] ||
+           (( PORT < 1024 || PORT > 65535 )); then
+            echo "invalid port" >&2
+            exit 2
+        fi
+
+        cd "$COMPOSE_DIR"
+
+        mapfile -d '' -t MODEL_ARGS < <(
+            build_model_args "$MODELS_INI" "$MODEL"
+        )
+
+        #printf 'MODEL_ARGS count: %d\n' "${#MODEL_ARGS[@]}" >&2
+        #printf 'ARG=<%s>\n' "${MODEL_ARGS[@]}" >&2
+        exec env \
+            HOST_BIND_ADDR=127.0.0.1 \
+            HOST_BIND_PORT="$PORT" \
+            /usr/bin/docker compose \
+                -p "$CONTAINER" \
+                -f "$COMPOSE_FILE" \
+                run \
+                --label "com.example.llama-swap-managed=true" \
+                --rm \
+                --service-ports \
+                llamacpp \
+                "${MODEL_ARGS[@]}"
+        ;;
+
+    stop)
+        cd "$COMPOSE_DIR"
+        mapfile -t CONTAINER_IDS < <(
+            /usr/bin/docker ps -q \
+                --filter "label=com.example.llama-swap-managed=true" \
+                --filter "label=com.docker.compose.project=$CONTAINER"
+        )
+
+        case "${#CONTAINER_IDS[@]}" in
+            0)
+                echo "error: no running container found for $CONTAINER" >&2
+                exit 1
+                ;;
+            1)
+                exec /usr/bin/docker stop "${CONTAINER_IDS[0]}"
+                ;;
+            *)
+                echo "error: multiple running containers found for $CONTAINER:" >&2
+                printf '  %s\n' "${CONTAINER_IDS[@]}" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+
+    stop-all)
+        mapfile -t containers < <(
+          /usr/bin/docker ps -q \
+            --filter 'label=com.example.llama-swap-managed=true'
+        )
+
+        if ((${#containers[@]})); then
+            /usr/bin/docker stop "${containers[@]}"
+        fi
+        ;;
+    *)
+        echo "usage: $0 {start|stop} MODEL [PORT]" >&2
+        exit 2
+        ;;
+esac
+
+

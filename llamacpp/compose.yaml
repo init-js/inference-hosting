@@ -6,7 +6,6 @@ networks:
 
 services:
   llamacpp:
-    container_name: llamacpp
     build:
       context: .
       dockerfile: ./Dockerfile.rocm-7.2.3
@@ -17,17 +16,18 @@ services:
     entrypoint: ["/usr/local/bin/llama-server"]
 
     # to download a model, just pass in
-    # docker compose run llamacpp -hf <model>
+    # docker compose run --rm llamacpp -hf <model>
     command: []
     environment:
       - "HF_TOKEN=${HF_TOKEN:?missing HF_TOKEN}"
       - "LLAMA_ARG_FLASH_ATTN=true"
-      - "LLAMA_ARG_MMAP=true"
+      # - "LLAMA_ARG_LOAD_MODE=mmap"
+      # - "LLAMA_ARG_MMAP=true"
       - "LLAMA_ARG_N_PARALLEL=4"
-      - "LLAMA_ARG_MODELS_MAX=2"
-      - "LLAMA_ARG_HOST=0.0.0.0"
-      - "LLAMA_ARG_PORT=8080"
-      - "LLAMA_ARG_MODELS_PRESET=/presets/models.ini"
+      - "LLAMA_ARG_HOST=${LLAMA_ARG_HOST:-0.0.0.0}"
+      - "LLAMA_ARG_PORT=${LLAMA_ARG_PORT:-8080}"
+      # - "LLAMA_ARG_MODELS_PRESET=/presets/models.ini"
+      # - "LLAMA_ARG_MODELS_MAX=1"
       # loaded from model
       - "LLAMA_ARG_CTX_SIZE=0"
     volumes:
@@ -44,11 +44,11 @@ services:
       - seccomp=unconfined
     ports:
       # host:container
-      - "8080:8080"
+      - "${HOST_BIND_ADDR:-0.0.0.0}:${HOST_BIND_PORT:-8080}:8080"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - llm-net
-    restart: always
+    restart: no
 
 

@@ -1,0 +1,50 @@
+services:
+  goose:
+    build:
+      context: .
+
+    container_name: goose
+    restart: unless-stopped
+    init: true
+    stop_signal: SIGINT
+    stop_grace_period: 5s
+  
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      # Goose model configuration
+      GOOSE_PROVIDER: openai
+      GOOSE_CONTEXT_LIMIT: "128000"
+      environment:
+      GOOSE_MODEL: writer
+      GOOSE_FAST_MODEL: writer
+      GOOSE_MAX_TOKENS: "2048"
+
+      # llama-swap's OpenAI-compatible endpoint
+      OPENAI_HOST: "http://host.docker.internal:${LLAMA_SWAP_PORT}"
+      OPENAI_BASE_PATH: "v1/chat/completions"
+
+      # Goose requires a value even if llama-swap ignores it
+      OPENAI_API_KEY: "local-no-auth"
+
+      # ACP server authentication
+      GOOSE_SERVER__SECRET_KEY: "${GOOSE_SECRET}"
+
+      # Safer initial behaviour
+      GOOSE_MODE: approve
+      GOOSE_TELEMETRY_ENABLED: "false"
+
+    volumes:
+      - ${GOOSE_WORKSPACE_DIR:-~/src}:/workspace
+      - ./config:/home/ubuntu/.config/goose
+      - goose-data:/home/ubuntu/.local/share/goose
+
+    working_dir: /workspace
+
+    # Localhost only. Connect remotely through an SSH tunnel.
+    ports:
+      - "127.0.0.1:3284:3284"
+
+volumes:
+  goose-data:

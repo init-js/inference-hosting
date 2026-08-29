@@ -1,0 +1,8 @@
+extensions:
+  developer:
+    type: builtin
+    name: developer
+    display_name: Developer
+    enabled: true
+    bundled: true
+    timeout: 300

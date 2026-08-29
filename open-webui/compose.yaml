@@ -1,0 +1,29 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.1
+    container_name: open-webui
+
+    volumes:
+      # stuff you probably wouldn't want to update by hand
+      # memory, auth, uploaded files, indices, etc.
+      - open-webui-data:/app/backend/data
+
+    environment:
+      OPENAI_API_BASE_URLS: http://host.docker.internal:8080/v1
+      # open webui -> llama-swap doesn't require auth
+      OPENAI_API_KEYS: local-no-auth
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_API_KEYS: "true"
+      # set this to domain names used to access the container
+      CORS_ALLOW_ORIGIN: "https://chat.ratfish-halosaur.ts.net;http://localhost:3000"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "127.0.0.1:3000:8080"
+
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:

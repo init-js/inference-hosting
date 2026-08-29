@@ -35,6 +35,7 @@ LLAMASWAPCTL=/usr/local/sbin/llama-swap-ctl
 LLAMASWAP_ETC=/etc/llama-swap
 LLAMASWAP_HOME=/var/lib/llama-swap
 LLAMASWAP_CONFIG="$LLAMASWAP_ETC/config.yaml"
+LLAMASWAP_BIND=0.0.0.0:8080
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$(realpath "$HERE/../llamacpp/compose.yaml")"
@@ -117,7 +118,7 @@ Group=llamaswap
 
 ExecStart=$LLAMASWAPD \
     -config ${LLAMASWAP_CONFIG} \
-    -listen 0.0.0.0:8080 \
+    -listen ${LLAMASWAP_BIND} \
     -watch-config
 
 ExecStopPost=/usr/bin/sudo -n $LLAMASWAPCTL stop-all

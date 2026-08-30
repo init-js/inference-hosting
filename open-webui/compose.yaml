@@ -3,6 +3,8 @@ services:
     image: ghcr.io/open-webui/open-webui:v0.11.1
     container_name: open-webui
 
+    depends_on:
+      - searxng
     volumes:
       # stuff you probably wouldn't want to update by hand
       # memory, auth, uploaded files, indices, etc.
@@ -24,6 +26,22 @@ services:
       - "127.0.0.1:3000:8080"
 
     restart: unless-stopped
+  
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_LIMITER: "false"
+      SEARXNG_IMAGE_PROXY: "true"
+
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
 
 volumes:
   open-webui-data:
+  searxng-cache:

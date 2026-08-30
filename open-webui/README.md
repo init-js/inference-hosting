@@ -64,3 +64,17 @@ update:
 docker compose pull open-webui
 docker compose up -d --force-recreate open-webui
 ```
+
+# SearXNG
+
+Testing:
+
+```
+docker compose exec open-webui \
+  curl -fsS \
+  'http://searxng:8080/search?q=llama.cpp&format=json' |
+jq -r '
+  "results: \(.results | length)",
+  (.results[:5][] | "\(.title)\n  \(.url)")
+'
+```

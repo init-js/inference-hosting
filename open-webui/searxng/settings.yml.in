@@ -1,0 +1,52 @@
+use_default_settings:
+  engines:
+    remove:
+      - startpage
+      - torch
+      - ahmia
+      - wikidataq
+
+outgoing:
+  user_agent_template: "{{ searxng_user_agent }}"
+  request_timeout: 5
+  max_connections: 10
+  enable_http2: true
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "overridden-by-SEARXNG_SECRET"
+  limiter: false
+  image_proxy: true
+
+engines:
+  # All I get is 403s here.
+  - name: wikidata
+    disabled: true
+    weight: 1
+    # Add proper headers
+    headers:
+      User-Agent: "SearXNG Wikidata Client (https://chat.ratfish-halosaur.ts.net/)"
+
+  # Retain this definition for SearXNG's shared Brave network,
+  # but never run the anonymous scraper.
+  - name: brave
+    engine: brave
+    # needed as a dependency
+    inactive: false
+    disabled: true
+
+  - name: brave-api
+    engine: braveapi
+    shortcut: brapi
+    categories:
+      - general
+      - web
+    api_key: "__BRAVE_SEARCH_API_KEY__"
+    results_per_page: 20
+    inactive: false
+    disabled: false

@@ -20,7 +20,8 @@ LLAMASWAP_ETC=$(dirname "$LLAMASWAP_CONFIG")
 #
 
 healthCheckTimeout: 120
-globalTTL: 300
+# seconds
+globalTTL: 5400
 logToStdout: both
 
 models:
